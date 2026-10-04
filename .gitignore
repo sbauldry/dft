@@ -1,0 +1,30 @@
+# OS / editor
+.DS_Store
+.Rproj.user/
+.Rhistory
+.RData
+.Ruserdata
+
+# Data (never commit); keep only data/README.md
+data/*
+!data/README.md
+*.dta
+*.sas7bdat
+*.sav
+
+# Large outputs
+output/models/*
+!output/models/.gitkeep
+
+# References: PDFs untracked
+refs/*.pdf
+/*.pdf
+
+# renv library
+renv/library/
+renv/local/
+renv/cellar/
+renv/lock/
+renv/python/
+renv/sandbox/
+renv/staging/
