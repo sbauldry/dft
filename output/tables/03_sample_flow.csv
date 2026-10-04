@@ -1,0 +1,8 @@
+reason,n
+a. start age < 50,7183
+b. missing start state,372
+c. missing end state,192
+d. next wave nonresponse (alive),16172
+e. next wave dropped from sample,62
+included: ends in death,14407
+included: ends in observed state,191670
