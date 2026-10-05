@@ -92,7 +92,29 @@ For each posterior draw g (pp. 266–268):
 2. **Sampler for J = 19.** Article guidance is a range, not a rule. Options: independence sampler (simpler; risk of poor acceptance with rare transitions) vs. Pólya-Gamma Gibbs (robust; needs custom or ported code since the original package is unsupported). Test on our data and record acceptance rates/diagnostics.
 3. **Convergence diagnostics.** Article shows only trace plots; we should add R-hat and effective sample size.
 4. **Functional form of age and interactions** (e.g., splines; age × sex) is not specified.
-5. **Radix for population-based tables.** "Row sums of the unnormalized probabilities at age 0 (a=1)" is the only description. Whether this includes the death column (probability of dying within the first interval) is not explicit; verify against the supplement code.
+5. **Radix for population-based tables.** The article only says "row sums of the unnormalized probabilities at age 0." *Resolved by the `bayesmlogit` source (2026-10-04):* `mlifeTable()` takes row sums of the unnormalized matrix at the first age **including the transition-to-death column**, sets the dead entry to 0, and uses that as the radix (it sums to 1 over living starts because the 20 joint probabilities sum to 1). Our `R/functions/life_table.R` follows this and reproduces `mlifeTable()` exactly on shared draws.
 6. **Draws and thinning.** 1,000 final draws from 2 chains; we may choose differently. No guidance on how many are needed for stable interval endpoints.
 7. **Treatment of death within an interval.** Linear approximation L = 0.5k[l(a)+l(a+1)] applies to all states including those who die mid-interval; no separate death-timing adjustment (e.g., our `radyear`/`radmonth`) is described.
 8. **Supplement and R functions.** Article states R functions and instructions are available from the authors; obtain them to check against these notes.
+
+## 7. The `bayesmlogit` R package (checked 2026-10-04)
+
+CRAN package `bayesmlogit` 1.0.1 (Zang, Zhang & Lynch): `bayesmlogit()` (sampler), `mlifeTable()` (life tables), `CreateTrans()`, plus plotting/comparison helpers. Findings from reading the source and running it:
+- **Algorithm.** Same Pólya-Gamma Gibbs sampler for the multinomial logit as in the article; reference outcome = last transition code.
+- **Prior.** Flat/improper (prior precision fixed at 0); not user-settable. Single chain from zero starting values; no built-in convergence diagnostics beyond optional trace plots.
+- **Speed.** Pólya-Gamma draws are made one observation at a time in R loops. On N = 2,000 and 20 outcomes it took 417 s for 1,500 iterations (~0.28 s/iteration); our vectorised sampler (`BayesLogit::rpg`) takes ~0.017 s/iteration on the same data and ~0.9 s/iteration on the full men's file (N = 86,095), where `bayesmlogit` would be roughly 50x slower per iteration.
+- **Life tables.** `mlifeTable()` only varies a single column named `age`, so it cannot handle our age + age^2 specification. It uses the same radix, linear L(a) and geometric open interval as the article. Our implementation agrees with it to 5 decimals on shared draws.
+- **Mixing.** On a stratified N = 2,000 test (100 intervals per transition) the package chain had bulk ESS ~6 of 1,000 draws (median); ours had ~55 of 4,000 across 4 chains (R-hat max 1.08). Differences between the two posterior means (~1 posterior SD) are consistent with Monte Carlo error from this poor mixing; both are within ~0.6 posterior SD of the ML estimates. Poor mixing of the Pólya-Gamma Gibbs sampler with many correlated transition outcomes is a concern for the full models (see diagnostics).
+
+## 8. Sampler pilot on the full men's data (2026-10-05)
+
+Model: 190 parameters (10 predictors x 19 outcomes), N = 86,095 intervals, prior N(0, 5^2), 4 chains each.
+
+| Sampler | Run | Max R-hat | Bulk ESS median / min | Notes |
+|---|---|---|---|---|
+| Pólya-Gamma Gibbs (`R/functions/pg_mlogit.R`) | 1,500 iter, 500 burn-in, 1,000 kept/chain, ~0.95 s/iter, 25 min | 1.58 | 147 / 7 (of 4,000) | Slow mixing concentrated in rare transitions (4→3, 3→2, 2→3, 4→1), esp. education/race terms; lag-1 autocorrelation up to 0.97 |
+| Independence MH, t(8) proposal at the posterior mode (`R/functions/mh_mlogit.R`) | 20,000 proposals, 2,000 burn-in, thin 10, 0.036 s/proposal, 15 min | 1.038 | 741 / 140 (of 7,200); tail ESS min 43 | Acceptance ~9%; mode by damped Newton in 26 s |
+
+- The two samplers agree: posterior means differ by a median 0.06 posterior SD (max 0.56 SD, on the parameters where the Gibbs chain mixes worst); both are within 0.5 SD of the posterior mode.
+- Proposal tails: acceptance by degrees of freedom was 8% (df 4), 9% (8), 15% (30), 24% (100), 31% (normal).
+- The article's guidance (independence sampler fine when n is large, few rare transitions, <15–20 outcomes) is borderline for J = 19 but holds here because every transition cell has >=355 events.
