@@ -118,3 +118,29 @@ Model: 190 parameters (10 predictors x 19 outcomes), N = 86,095 intervals, prior
 - The two samplers agree: posterior means differ by a median 0.06 posterior SD (max 0.56 SD, on the parameters where the Gibbs chain mixes worst); both are within 0.5 SD of the posterior mode.
 - Proposal tails: acceptance by degrees of freedom was 8% (df 4), 9% (8), 15% (30), 24% (100), 31% (normal).
 - The article's guidance (independence sampler fine when n is large, few rare transitions, <15–20 outcomes) is borderline for J = 19 but holds here because every transition cell has >=355 events.
+
+## 9. Full estimation runs and prior sensitivity (2026-10-05)
+
+Independence sampler (`R/04_estimate.R`): t(30) proposal at the posterior mode, 4 chains × 100,000 proposals, burn-in 10,000, thin 10 (36,000 draws per sex). Men N = 86,095 intervals; women N = 119,879. Draws are in `output/models/draws_<sex>_psd<sd>.rds` (untracked).
+
+| Sex | Prior sd | Acceptance | Max R-hat | Bulk ESS median / min | Tail ESS min |
+|---|---|---|---|---|---|
+| Men | 2.5 | | 1.002 | 8,348 / 4,955 | 2,123 |
+| Men | 5 | 0.165–0.169 | 1.002 | 7,226 / 3,858 | 1,395 |
+| Men | 10 | | 1.002 | 6,135 / 3,272 | 1,205 |
+| Women | 2.5 | | 1.001 | 18,731 / 14,921 | 10,643 |
+| Women | 5 | 0.235–0.242 | 1.001 | 18,260 / 13,936 | 9,486 |
+| Women | 10 | | 1.001 | 18,136 / 13,425 | 8,809 |
+
+Prior sensitivity (`R/04c_prior_sensitivity.R`; per-parameter tables in `output/tables/prior_sensitivity_<sex>.csv`). Differences in posterior means relative to sd 5, in units of the sd 5 posterior SD:
+
+| | Median abs | Max abs |
+|---|---|---|
+| Men, sd 2.5 | 0.022 | 0.51 |
+| Men, sd 10 | 0.007 | 0.21 |
+| Women, sd 2.5 | 0.025 | 0.20 |
+| Women, sd 10 | 0.006 | 0.06 |
+
+- Posterior SDs are unchanged (median ratio 0.998–1.000).
+- The largest shifts are on the college-education terms for the rarest transitions, mainly 4→3 (outcome 18, 392 events): men -5.24 (sd 5), -4.73 (sd 2.5), -5.45 (sd 10), posterior SD ~1.0. Shifts for 3→2, 2→3 and 4→1 college terms are <0.17 SD.
+- Conclusion: coefficient posteriors are data-dominated apart from weakly identified college terms on rare transitions; sd 5 is retained as the main prior. Not yet checked: whether the shifts affect life-table quantities (to do after `05_life_tables.R`).
