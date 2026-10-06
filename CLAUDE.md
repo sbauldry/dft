@@ -109,7 +109,7 @@ Independence Metropolis-Hastings (t(30) proposal at the posterior mode), 4 chain
 
 ### Status and next steps (2026-10-05, end of day)
 Done: data rebuilt and verified (205,974 intervals, 35,549 persons); all six model runs (men/women × prior sd 2.5/5/10); sd 5 life tables for both sexes (total life expectancy at 50, population radix: men 27.8, women 31.5 years). Everything is committed and pushed.
-Next: (1) run `R/05_life_tables.R` for sd 2.5 and 10 and check whether the college-term shifts affect life-table quantities (log in `docs/methods-notes.md` §9); (2) write `R/06_figures.R` (ggplot2, PDF + PNG to `output/figures/`); (3) Quarto diagnostics report in `reports/`; (4) remaining sensitivity analyses (CIND + dementia cut; interval length as covariate). Note: raw files were found in `data/` and copied to `data/raw/` (originals left in `data/`, untracked).
+Next: (1) ~~sd 2.5/10 life tables~~ done 2026-10-06: life-table quantities differ from sd 5 by ≤0.16 years (≤0.14 of a 95% CrI half-width), see `docs/methods-notes.md` §9; (2) write `R/06_figures.R` (ggplot2, PDF + PNG to `output/figures/`); (3) Quarto diagnostics report in `reports/`; (4) after figures and report (user's decision 2026-10-06): remaining sensitivity analyses (CIND + dementia cut; interval length as covariate). Note: raw files were found in `data/` and copied to `data/raw/` (originals left in `data/`, untracked).
 
 ### Tooling notes
 - `bayesmlogit` (CRAN 1.0.1, Zang, Zhang & Lynch) uses a flat prior, one chain, per-observation R loops (very slow at this scale) and only varies a single `age` column, so it cannot take our age + age² model. We use our own code and the package as a validation reference.
