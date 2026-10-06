@@ -1,0 +1,140 @@
+---
+title: "Dual Function Recovery: estimation diagnostics"
+subtitle: "Bayesian multistate life table, HRS 1998-2022"
+format:
+  html:
+    toc: true
+    embed-resources: true
+    code-fold: true
+    fig-width: 7
+    fig-height: 4
+execute:
+  echo: true
+  warning: false
+  message: false
+---
+
+```{r setup}
+library(tidyverse); library(here); library(posterior); library(knitr)
+source(here("R/functions/constants.R"))
+sexes <- c("men", "women"); priors <- c("2.5", "5", "10")
+load_fit <- function(sex, psd) readRDS(here("output/models", sprintf("draws_%s_psd%s.rds", sex, psd)))
+fits <- map(set_names(sexes), \(s) map(set_names(priors), \(p) load_fit(s, p)))
+theme_set(theme_minimal(base_size = 10))
+```
+
+This report summarises data construction, sampler convergence, prior sensitivity and life-table checks.
+It reads saved posterior draws and tables only; nothing is re-estimated. The main prior is N(0, 5^2).
+
+# 1. Data and sample
+
+```{r sample}
+read_csv(here("output/tables/03_sample_flow.csv"), show_col_types = FALSE) |> kable(caption = "Sample flow (reasons for exclusion)")
+iv <- readRDS(here("data/derived/intervals.rds"))
+tibble(sex = c("Men", "Women", "Total"),
+       intervals = c(sum(iv$female == 0), sum(iv$female == 1), nrow(iv)),
+       persons = c(n_distinct(iv$hhidpn[iv$female == 0]), n_distinct(iv$hhidpn[iv$female == 1]), n_distinct(iv$hhidpn))) |>
+  kable(format.args = list(big.mark = ","), caption = "Analytic sample")
+```
+
+```{r transitions}
+tc <- iv |> count(start_state, end_state) |> pivot_wider(names_from = end_state, values_from = n, names_prefix = "to ")
+kable(tc, format.args = list(big.mark = ","), caption = "Transition counts, men and women combined (to 5 = dead)")
+```
+
+```{r bywave}
+read_csv(here("output/tables/02_state_by_wave.csv"), show_col_types = FALSE) |>
+  ggplot(aes(year, pct, colour = state)) + geom_line() + geom_point(size = 1) +
+  labs(x = NULL, y = "% of respondents", colour = NULL, title = "State distribution by wave")
+```
+
+# 2. Sampler
+
+Independence Metropolis-Hastings with a t(30) proposal at the posterior mode; 4 chains x 100,000 proposals, burn-in 10,000, thin 10 (36,000 draws per sex).
+
+```{r conv}
+conv <- map_dfr(sexes, \(s) map_dfr(priors, \(p) {
+  f <- fits[[s]][[p]]; d <- f$diagnostics
+  tibble(sex = s, prior_sd = p, N = f$N, acceptance = mean(f$accept), max_rhat = max(d$rhat),
+         ess_bulk_median = median(d$ess_bulk), ess_bulk_min = min(d$ess_bulk), ess_tail_min = min(d$ess_tail),
+         run_min = as.numeric(f$run_time) / 60)
+}))
+kable(conv, digits = c(0, 0, 0, 3, 3, 0, 0, 0, 0), format.args = list(big.mark = ","),
+      caption = "Convergence by run (190 parameters each)")
+```
+
+```{r weakest}
+f <- fits$men[["5"]]
+bind_rows(map(sexes, \(s) fits[[s]][["5"]]$diagnostics |> mutate(sex = s))) |>
+  group_by(sex) |> slice_min(ess_tail, n = 5) |> select(sex, variable, rhat, ess_bulk, ess_tail) |>
+  kable(digits = 3, format.args = list(big.mark = ","), caption = "Five parameters with the lowest tail ESS (prior sd 5)")
+```
+
+Outcome codes are `(start - 1) * 5 + end`: t2 = 1→2, t5 = 1→5, t8 = 2→3, t12 = 3→2, t16 = 4→1, t18 = 4→3, t20 = 4→5.
+
+```{r trace, fig.height = 6}
+chain_df <- function(sex, par) {
+  f <- fits[[sex]][["5"]]; ix <- strsplit(par, ":")[[1]]
+  x <- f$draws[, , ix[1], ix[2]]
+  as_tibble(x, .name_repair = ~ paste0("chain", 1:4)) |> mutate(iter = row_number()) |>
+    pivot_longer(-iter, names_to = "chain", values_to = "value") |> mutate(sex = sex, par = par)
+}
+worst <- map_chr(sexes, \(s) fits[[s]][["5"]]$diagnostics |> slice_min(ess_tail, n = 1) |> pull(variable))
+tr <- bind_rows(map2(sexes, worst, chain_df), map(sexes, \(s) chain_df(s, "age:t5")))
+ggplot(tr, aes(iter, value, colour = chain)) + geom_line(linewidth = 0.2, alpha = 0.7) +
+  facet_grid(par ~ sex, scales = "free_y") + labs(x = "Retained draw (per chain)", y = NULL, title = "Trace plots: weakest-mixing parameter and age:t5 per sex")
+```
+
+```{r dens}
+ggplot(tr, aes(value, colour = chain)) + geom_density() + facet_grid(par ~ sex, scales = "free") +
+  labs(x = NULL, title = "Marginal densities by chain")
+```
+
+```{r rhat}
+bind_rows(map(sexes, \(s) fits[[s]][["5"]]$diagnostics |> mutate(sex = s))) |>
+  ggplot(aes(ess_bulk)) + geom_histogram(bins = 30) + facet_wrap(~ sex, scales = "free_x") + scale_x_log10() +
+  labs(x = "Bulk ESS (log scale)", y = "Parameters", title = "Distribution of bulk ESS, prior sd 5")
+```
+
+# 3. Prior sensitivity
+
+```{r prior}
+ps <- map_dfr(sexes, \(s) read_csv(here("output/tables", sprintf("prior_sensitivity_%s.csv", s)), show_col_types = FALSE) |> mutate(sex = s))
+ps |> group_by(sex) |>
+  summarise(`sd 2.5 median |diff|` = median(abs(d25)), `sd 2.5 max |diff|` = max(abs(d25)),
+            `sd 10 median |diff|` = median(abs(d10)), `sd 10 max |diff|` = max(abs(d10))) |>
+  kable(digits = 3, caption = "Posterior-mean differences vs sd 5, in sd-5 posterior SDs")
+ps |> mutate(mx = pmax(abs(d25), abs(d10))) |> group_by(sex) |> slice_max(mx, n = 5) |>
+  select(sex, par, mean_2.5, mean_5, mean_10, sd_5, d25, d10) |> kable(digits = 2, caption = "Largest shifts")
+```
+
+```{r lt-prior}
+lt <- map_dfr(sexes, \(s) map_dfr(priors, \(p) read_csv(here("output/tables", sprintf("lifetable_summary_%s_psd%s.csv", s, p)), show_col_types = FALSE)))
+lt |> filter(quantity == "total_expectancy", radix == "population", age %in% c(50, 70, 90)) |>
+  select(sex, age, prior_sd, mean, lo95, hi95) |>
+  kable(digits = 2, caption = "Total life expectancy (population radix) by prior")
+```
+
+# 4. Life-table checks
+
+```{r lt-checks}
+m5 <- lt |> filter(prior_sd == 5)
+m5 |> filter(quantity == "pct_remaining", radix == "population", state != "Total") |>
+  group_by(sex, age) |> summarise(s = sum(mean), .groups = "drop") |>
+  summarise(`min sum` = min(s), `max sum` = max(s)) |> kable(digits = 6, caption = "Percent of remaining life sums to 100 at every age")
+m5 |> filter(quantity == "total_expectancy", radix == "population") |> group_by(sex) |>
+  summarise(`monotone decreasing in age` = all(diff(mean[order(age)]) < 0)) |> kable()
+m5 |> filter(quantity == "total_expectancy", age == 50) |> select(sex, radix, mean, lo84, hi84) |>
+  kable(digits = 2, caption = "Total life expectancy at 50 by radix")
+```
+
+# 5. Notes and caveats
+
+- Sampler: Polya-Gamma Gibbs mixed poorly on the full data (pilot: max R-hat 1.58, min ESS 7), so the independence sampler is the main estimator; see `docs/methods-notes.md` sections 8 and 9.
+- State 3 → 1 recovery (about 30% per two years) is probably Langa-Weir classification noise near the dementia cut.
+- Life tables are cohort tables at the sample-mean birth cohort, with race/ethnicity and education at sample proportions; unweighted.
+- Intervals use the 2-year assumption for all intervals. The CIND + dementia and interval-length sensitivity analyses are not yet run.
+
+```{r session}
+sessionInfo()
+```
